@@ -3,3 +3,4 @@
 *.ics
 *.txt
 .vercel
+*.wasm
