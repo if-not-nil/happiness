@@ -45,7 +45,8 @@ const (
 type SubgroupIdx int
 
 const (
-	subgroupOne SubgroupIdx = iota
+	subgroupShared SubgroupIdx = iota
+	subgroupOne
 	subgroupTwo
 )
 
