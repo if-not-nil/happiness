@@ -34,13 +34,29 @@ var lecturePattern = regexp.MustCompile(`(?m)^(\d+)\s+(\d{2}:\d{2})-(\d{2}:\d{2}
 // It's run with FindAllStringSubmatchIndex so parseSchedule gets byte offsets to slice each day's section out of the text.
 var weekdayPattern = regexp.MustCompile(`(?m)(Monday|Tuesday|Wednesday|Thursday|Friday)\s+(\d{4}-\d{2}-\d{2})\s+[—-]\s+(\d{4}-\d{2}-\d{2})`)
 
+type WeekIdx int
+
+const (
+	weekZero WeekIdx = iota
+	weekOne
+	weekTwo
+)
+
+type SubgroupIdx int
+
+const (
+	subgroupShared SubgroupIdx = iota
+	subgroupOne
+	subgroupTwo
+)
+
 // Lecture in this context could also mean a practical lecture or a laboratory work.
 type Lecture struct {
 	Position    uint8
 	StartTime   time.Time
 	EndTime     time.Time
-	Week        uint8 // enum todo
-	Subgroup    uint8 // same todo
+	Week        WeekIdx
+	Subgroup    SubgroupIdx
 	SubjectName string
 	Auditorium  string
 	Lecturer    string
@@ -148,15 +164,17 @@ func parseLecture(match []string) (Lecture, error) {
 		return Lecture{}, fmt.Errorf("invalid end time %q: %w", match[3], err)
 	}
 
-	weekNumber := uint64(0)
+	week := WeekIdx(0)
 	if match[4] != "" {
-		weekNumber, err = strconv.ParseUint(match[4], 10, 8)
-		if err != nil || weekNumber > 2 {
+		n, err := strconv.ParseUint(match[4], 10, 8)
+		if err != nil || n > uint64(weekTwo) {
 			return Lecture{}, fmt.Errorf("invalid week number %q", match[4])
 		}
+		week = WeekIdx(n)
 	}
+
 	subgroup, err := strconv.ParseUint(match[5], 10, 8)
-	if err != nil {
+	if err != nil || subgroup > uint64(subgroupTwo) {
 		return Lecture{}, fmt.Errorf("invalid subgroup %q: %w", match[5], err)
 	}
 
@@ -164,8 +182,8 @@ func parseLecture(match []string) (Lecture, error) {
 		Position:    uint8(position),
 		StartTime:   startTime,
 		EndTime:     endTime,
-		Week:        uint8(weekNumber),
-		Subgroup:    uint8(subgroup),
+		Week:        week,
+		Subgroup:    SubgroupIdx(subgroup),
 		SubjectName: strings.TrimSpace(match[6]),
 		Auditorium:  strings.TrimSpace(match[7]),
 		Lecturer:    strings.TrimSpace(match[8]),
@@ -194,14 +212,14 @@ func writeICS(schedule Schedule) ([]byte, error) {
 			return nil, fmt.Errorf("timetable contains more than seven weekday tables")
 		}
 		for lectureIndex, lecture := range day {
-			if lecture.Week > 2 {
+			if lecture.Week > weekTwo {
 				return nil, fmt.Errorf("lecture %d on weekday %d has invalid week %d", lectureIndex, dayIndex, lecture.Week)
 			}
 			start := monday.AddDate(0, 0, dayIndex)
 			if start.Before(schedule.StartDate) {
 				start = start.AddDate(0, 0, 7)
 			}
-			if lecture.Week == 2 {
+			if lecture.Week == weekTwo {
 				start = start.AddDate(0, 0, 7)
 			}
 			start = time.Date(start.Year(), start.Month(), start.Day(), lecture.StartTime.Hour(), lecture.StartTime.Minute(), 0, 0, time.UTC)
@@ -213,7 +231,7 @@ func writeICS(schedule Schedule) ([]byte, error) {
 			output.WriteString("DTSTAMP:" + time.Now().UTC().Format(icsDateFormat) + "Z\r\n")
 			output.WriteString("DTSTART:" + start.Format(icsDateFormat) + "\r\n")
 			output.WriteString("DTEND:" + end.Format(icsDateFormat) + "\r\n")
-			if lecture.Week == 0 {
+			if lecture.Week == weekZero {
 				output.WriteString("RRULE:FREQ=WEEKLY;UNTIL=" + schedule.EndDate.Format(icsDateFormat) + "\r\n")
 			} else {
 				output.WriteString("RRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=" + schedule.EndDate.Format(icsDateFormat) + "\r\n")
